@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+{% block page %}index{% endblock %}
+{% block title %}打印 · {{ site_name }}{% endblock %}
+
+{% block content %}
+<noscript>
+  <div class="alert error">本页面需要 JavaScript 才能上传与设置打印参数。请启用后刷新。</div>
+</noscript>
+<div id="bootstrap-json" type="application/json" hidden>{{ bootstrap|tojson }}</div>
+
+<!-- 状态条 -->
+<section class="status-strip" id="status-strip" aria-live="polite">
+  <div class="status-item">
+    <span class="status-dot" id="status-dot"></span>
+    <span id="status-text">正在检测打印机…</span>
+  </div>
+  <div class="status-item" id="status-driver"></div>
+  <div class="status-item right">
+    <span id="status-urls" class="muted tiny"></span>
+    <button class="btn tiny ghost" id="refresh-status" type="button">刷新</button>
+  </div>
+</section>
+
+<div class="grid-main">
+  <!-- 上传 + 设置 -->
+  <section class="card upload-card">
+    <div class="card-head">
+      <h2>新建打印任务</h2>
+      <span class="muted tiny">支持 PDF / Word(.doc .docx) / 图片</span>
+    </div>
+
+    <div id="dropzone" class="dropzone" tabindex="0" role="button"
+         aria-label="点击选择文件，或把文件拖到这里">
+      <div class="dz-icon">📄</div>
+      <div class="dz-title">把文件拖到这里，或点击选择</div>
+      <div class="dz-sub muted tiny">PDF · Word · JPG/PNG · 最大 {{ max_upload_mb }} MB</div>
+      <input type="file" id="file-input" multiple hidden
+             accept=".pdf,.doc,.docx,.odt,.rtf,.jpg,.jpeg,.png,.bmp,.tif,.tiff,.gif,.webp">
+    </div>
+
+    <ul class="file-list" id="file-list"></ul>
+
+    <div class="mode-switch" role="tablist" aria-label="打印模式">
+      <button class="mode-btn active" data-mode="document" type="button" role="tab">
+        文档打印 <span class="tiny muted">A4 黑白单面（默认）</span>
+      </button>
+      <button class="mode-btn" data-mode="photo" type="button" role="tab">
+        6 寸照片 <span class="tiny muted">4R 102×152mm</span>
+      </button>
+    </div>
+
+    <div class="presets" id="presets"></div>
+
+    <div id="settings-panel" class="settings-panel"></div>
+
+    <details class="native-box" id="native-box">
+      <summary>驱动原生选项（与 HP 官方驱动逐项一致）</summary>
+      <div id="native-options" class="native-grid"></div>
+      <p class="hint tiny">
+        这里列出的是打印机驱动里真实存在的选项与取值。日常用上面的「高级设置」即可；
+        需要完全按驱动设置时，可在此直接指定，它会覆盖同名选项。
+      </p>
+    </details>
+
+    <div class="submit-row">
+      <label class="field grow">
+        <span>任务名称（可选）</span>
+        <input type="text" id="job-title" placeholder="默认使用文件名" maxlength="120">
+      </label>
+      <button class="btn primary lg" id="submit-job" type="button" disabled>
+        开始打印
+      </button>
+    </div>
+    <p class="hint tiny" id="settings-notes"></p>
+  </section>
+
+  <!-- 任务列表 -->
+  <section class="card jobs-card">
+    <div class="card-head">
+      <h2>打印队列</h2>
+      <div class="card-head-actions">
+        <span class="muted tiny" id="jobs-summary"></span>
+        <button class="btn tiny ghost" id="refresh-jobs" type="button">刷新</button>
+      </div>
+    </div>
+    <div id="jobs" class="jobs" aria-live="polite">
+      <p class="muted center empty">还没有任务</p>
+    </div>
+  </section>
+</div>
+
+<!-- 手动双面：继续打印确认框 -->
+<div class="modal" id="duplex-modal" hidden>
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="duplex-title">
+    <div class="modal-emoji" id="duplex-emoji">📄</div>
+    <h2 id="duplex-title">请先翻面，再继续</h2>
+    <p class="modal-text" id="duplex-text"></p>
+
+    <div class="flip-diagram" aria-hidden="true">
+      <div class="flip-side">
+        <div class="paper"><span>1</span><span>3</span><span>5</span></div>
+        <div class="flip-label">第一面已打印</div>
+      </div>
+      <div class="flip-arrow">⟲</div>
+      <div class="flip-side">
+        <div class="paper flipped"><span>2</span><span>4</span><span>6</span></div>
+        <div class="flip-label">翻面后点按钮</div>
+      </div>
+    </div>
+
+    <p class="modal-warn">
+      打印机已暂停第二面。不点下面的按钮，第二面永远不会打印。
+    </p>
+    <div class="modal-actions">
+      <button class="btn ghost" id="duplex-cancel" type="button">取消本次任务</button>
+      <button class="btn primary xl" id="duplex-continue" type="button">
+        ✅ 我已翻面，继续打印
+      </button>
+    </div>
+  </div>
+</div>
+{% endblock %}

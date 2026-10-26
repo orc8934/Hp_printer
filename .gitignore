@@ -1,0 +1,23 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+pytest-of-*/
+
+# ---- 运行期数据（绝不提交）----
+data/
+.spool/
+config.local.yaml
+initial-admin.txt
+*.log
+
+# ---- 本地临时 ----
+.tmp/
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+.tmp*

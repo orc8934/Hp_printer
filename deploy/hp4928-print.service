@@ -1,0 +1,41 @@
+[Unit]
+Description=HP 4928 print service (Web UI, 0.0.0.0:10086)
+Documentation=file:///opt/hp4928-print/README.md
+# 开机顺序：先等网络与 CUPS，再把 CUPS 一起拉起来（Wants 是软依赖，CUPS 挂了本服务仍可用虚拟后端）
+After=network-online.target cups.service
+Wants=network-online.target cups.service
+
+[Service]
+Type=simple
+User=hp4928
+Group=hp4928
+WorkingDirectory=/opt/hp4928-print
+EnvironmentFile=-/etc/hp4928-print/env
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+# 数据目录必须落在可写路径（ReadWritePaths 之内），否则 ProtectSystem=strict 会拒绝写入
+Environment=HP4928_DATA_DIR=/var/lib/hp4928-print
+Environment=PYTHONPATH=/opt/hp4928-print
+ExecStart=/opt/hp4928-print/.venv/bin/python -m hp4928.cli serve --config /etc/hp4928-print/config.yaml
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=20
+KillSignal=SIGINT
+
+# ---- 安全加固（数据目录是唯一可写路径）----
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=false
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictSUIDSGID=true
+LockPersonality=true
+ReadWritePaths=/var/lib/hp4928-print
+# /dev/usb 由 CUPS 访问，本服务只通过 lp 命令投递，不需要设备权限
+
+[Install]
+WantedBy=multi-user.target

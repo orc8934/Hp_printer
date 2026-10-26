@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+{% block page %}settings{% endblock %}
+{% block title %}设置 · {{ site_name }}{% endblock %}
+
+{% block content %}
+<div class="settings-grid">
+
+  <section class="card" id="printer-card">
+    <div class="card-head">
+      <h2>打印机与连接</h2>
+      <span class="muted tiny" id="printer-selected"></span>
+    </div>
+    <noscript><p class="muted tiny">需要 JavaScript 才能切换/添加打印机连接。</p></noscript>
+    <div id="printer-manager" class="printer-manager">
+      <p class="muted tiny">正在读取 CUPS 队列…</p>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-head"><h2>打印机状态</h2></div>
+    <dl class="kv">
+      <dt>后端</dt>
+      <dd>
+        {% if status.backend.kind == 'cups' %}
+        <span class="badge ok">CUPS 真机打印</span>
+        {% else %}
+        <span class="badge warn">虚拟打印机（输出 PDF）</span>
+        {% endif %}
+        {{ status.backend.reason }}
+      </dd>
+      <dt>队列</dt>
+      <dd><code>{{ status.selected or status.backend.queue or '—' }}</code>
+        {% if status.configured_queue and status.selected and status.selected != status.configured_queue %}
+        <span class="badge">界面选择</span>
+        {% elif status.configured_queue %}
+        <span class="badge">配置 printer.name</span>
+        {% endif %}
+      </dd>
+      <dt>设备</dt>
+      <dd class="mono tiny">{{ status.backend.device_uri or '—' }}</dd>
+      <dt>USB</dt>
+      <dd>
+        {% if status.usb.present %}<span class="badge ok">已连接</span>{% else %}<span class="badge warn">未检测到</span>{% endif %}
+        {{ status.usb.detail }}
+      </dd>
+      <dt>队列状态</dt>
+      <dd class="tiny">{{ status.queue.state or '—' }}</dd>
+      {% if status.backend.warnings %}
+      <dt>提醒</dt>
+      <dd class="tiny warn-text">{{ status.backend.warnings|join('；') }}</dd>
+      {% endif %}
+    </dl>
+    <p class="tiny muted">
+      HP 4928 官方规格：USB 2.0 直连 + Wi-Fi（802.11b/g/n 2.4G）；手动双面；不支持无边距。
+    </p>
+  </section>
+
+  <section class="card">
+    <div class="card-head"><h2>打印驱动</h2></div>
+    <dl class="kv">
+      <dt>来源</dt>
+      <dd>
+        {% if schema.driver.source == 'lpoptions' %}<span class="badge ok">CUPS 运行态（lpoptions）</span>
+        {% elif schema.driver.source == 'ppd' %}<span class="badge ok">PPD 文件</span>
+        {% else %}<span class="badge warn">内置能力画像</span>{% endif %}
+      </dd>
+      <dt>驱动</dt>
+      <dd class="tiny">{{ schema.driver.description or '—' }}</dd>
+      <dt>PPD</dt>
+      <dd class="mono tiny">{{ schema.driver.path or '—' }}</dd>
+      <dt>选项数</dt>
+      <dd>{{ schema.driver.option_count }}</dd>
+      <dt>语义映射</dt>
+      <dd class="tiny">
+        {% for role, name in schema.driver.roles.items() %}
+        <code>{{ role }}→{{ name }}</code>{% if not loop.last %} {% endif %}
+        {% else %}未识别{% endfor %}
+      </dd>
+    </dl>
+    <div class="row">
+      <a class="btn ghost" href="{{ url_for('web.settings_doctor') }}">运行环境自检</a>
+      <button class="btn ghost" id="refresh-schema" type="button">重新读取驱动</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-head"><h2>我的账号</h2></div>
+    <form id="password-form" class="stack">
+      <label class="field"><span>当前密码</span>
+        <input type="password" name="current_password" autocomplete="current-password" required>
+      </label>
+      <label class="field"><span>新密码</span>
+        <input type="password" name="new_password" autocomplete="new-password" minlength="8" required>
+      </label>
+      <label class="field"><span>再输一次</span>
+        <input type="password" name="confirm" autocomplete="new-password" required>
+      </label>
+      <button class="btn primary" type="submit">修改密码</button>
+    </form>
+  </section>
+
+  <section class="card">
+    <div class="card-head">
+      <h2>账号管理</h2>
+      <span class="muted tiny">共 {{ users|length }} 个</span>
+    </div>
+    <div class="table-wrap">
+      <table class="table compact">
+        <thead><tr><th>账号</th><th>角色</th><th>最近登录</th><th></th></tr></thead>
+        <tbody>
+          {% for item in users %}
+          <tr>
+            <td class="strong">{{ item.username }}{% if item.disabled %} <span class="badge warn">停用</span>{% endif %}</td>
+            <td>{% if item.role == 'admin' %}<span class="badge admin">管理员</span>{% else %}普通用户{% endif %}</td>
+            <td class="tiny">{{ (item.last_login_at or '—').replace('T', ' ').replace('Z', '') }}</td>
+            <td class="nowrap">
+              <button class="btn tiny ghost" data-reset-password="{{ item.username }}" type="button">重置密码</button>
+              {% if item.username != user.username %}
+              <button class="btn tiny ghost danger" data-delete-user="{{ item.username }}" type="button">删除</button>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <form id="new-user-form" class="row gap">
+      <input class="input" name="username" placeholder="新账号名" autocomplete="off" required>
+      <select class="input" name="role">
+        <option value="user">普通用户</option>
+        <option value="admin">管理员</option>
+      </select>
+      <button class="btn primary" type="submit">添加账号</button>
+    </form>
+  </section>
+
+  <section class="card">
+    <div class="card-head"><h2>虚拟打印输出</h2></div>
+    {% if spool %}
+    <ul class="plain list">
+      {% for item in spool %}
+      <li>
+        <a href="{{ url_for('api.api_spool_file', name=item.name) }}">{{ item.name }}</a>
+        <span class="tiny muted">{{ (item.stat().st_size / 1024)|round(1) }} KB</span>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="muted tiny">暂无。USB/CUPS 不可用时，任务会以 PDF 形式保存在这里。</p>
+    {% endif %}
+    <p class="tiny muted mono">{{ config.spool_dir }}</p>
+  </section>
+
+  <section class="card">
+    <div class="card-head"><h2>运行配置</h2></div>
+    <dl class="kv">
+      <dt>监听</dt><dd><code>{{ config.host }}:{{ config.port }}</code></dd>
+      <dt>数据目录</dt><dd class="mono tiny">{{ config.data_dir }}</dd>
+      <dt>配置文件</dt><dd class="mono tiny">{{ config.describe_sources() }}</dd>
+      <dt>后端模式</dt><dd>{{ config.get('printer.backend') }}</dd>
+      <dt>队列名</dt><dd>{{ config.get('printer.name') }}</dd>
+      <dt>USB 检测</dt><dd>{{ '开启' if config.get('printer.usb.require_device') else '关闭' }}</dd>
+      <dt>文件保留</dt><dd>{{ config.get('retention.days') }} 天（失败任务 {{ config.get('retention.keep_failed_days') }} 天）</dd>
+      <dt>上传上限</dt><dd>{{ config.get('server.max_upload_mb') }} MB</dd>
+    </dl>
+    <p class="tiny muted">修改配置后需重启服务：<code>sudo systemctl restart hp4928-print</code></p>
+  </section>
+</div>
+{% endblock %}

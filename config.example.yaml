@@ -1,0 +1,74 @@
+# HP 4928 打印服务配置示例
+# 复制为 config.yaml（或 /etc/hp4928-print/config.yaml）后按需修改。
+# 所有字段均有内置默认值，删掉也能启动。
+# 端口、账号密码等说明见 README.md。
+
+app:
+  name: HP 4928 打印服务
+  site_name: 打印服务
+paths:
+  data_dir: data
+server:
+  host: 0.0.0.0
+  port: 10086
+  threads: 8
+  session_hours: 12
+  trust_proxy: false
+  behind_https: false
+  allowed_cidrs: []
+  max_upload_mb: 64
+printer:
+  name: HP4928
+  backend: auto
+  cups:
+    lp: lp
+    lpstat: lpstat
+    lpoptions: lpoptions
+    lpinfo: lpinfo
+    lpadmin: lpadmin
+    timeout: 60
+    admin_group: lpadmin
+  usb:
+    require_device: true
+    hp_vendor_ids:
+    - 03f0
+    allow_network_fallback: true
+  virtual:
+    dir: ''
+  auto_create_queue: false
+print:
+  media: A4
+  media_type: plain
+  color: mono
+  duplex: 'off'
+  quality: normal
+  copies: 1
+  pages_per_sheet: 1
+  scale: fit
+  orientation: auto
+  page_ranges: ''
+  reverse_second_pass: true
+  manual_duplex_timeout_minutes: 60
+  photo:
+    media: 4x6in
+    dpi: 300
+    border_mm: 3.0
+    fit: fit
+    auto_rotate: true
+conversion:
+  soffice: ''
+  pdftoppm: ''
+  timeout: 180
+  image_dpi: 300
+security:
+  force_password_change: false
+  login_max_attempts: 5
+  login_window_seconds: 300
+  min_password_length: 8
+  default_admin_user: admin
+retention:
+  days: 14
+  keep_failed_days: 30
+logging:
+  level: INFO
+  file: ''

@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block page %}doctor{% endblock %}
+{% block title %}环境自检 · {{ site_name }}{% endblock %}
+
+{% block content %}
+<section class="card">
+  <div class="card-head">
+    <h2>环境自检</h2>
+    <a class="btn tiny ghost" href="{{ url_for('web.settings_page') }}">返回设置</a>
+  </div>
+  <p class="muted tiny">逐项检查 USB、CUPS、驱动、字体与依赖。❌ 项需要处理后才能真机打印。</p>
+
+  <div class="table-wrap">
+    <table class="table">
+      <thead><tr><th>项目</th><th>结果</th><th>详情</th><th>处理建议</th></tr></thead>
+      <tbody>
+        {% for check in checks %}
+        <tr class="check-{{ check.status }}">
+          <td class="strong nowrap">{{ check.name }}</td>
+          <td class="nowrap">
+            {% if check.status == 'ok' %}<span class="badge ok">通过</span>
+            {% elif check.status == 'warn' %}<span class="badge warn">注意</span>
+            {% else %}<span class="badge fail">失败</span>{% endif %}
+          </td>
+          <td class="tiny">{{ check.detail }}</td>
+          <td class="tiny mono">{{ check.hint }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

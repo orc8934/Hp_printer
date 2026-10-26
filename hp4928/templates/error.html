@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block page %}error{% endblock %}
+{% block title %}{{ code }} · {{ site_name }}{% endblock %}
+
+{% block content %}
+<div class="card center error-card">
+  <div class="error-code">{{ code }}</div>
+  <p class="error-message">{{ message }}</p>
+  <div class="row center">
+    <a class="btn primary" href="{{ url_for('web.index') }}">回到打印页</a>
+    {% if not user %}<a class="btn ghost" href="{{ url_for('web.login') }}">去登录</a>{% endif %}
+  </div>
+</div>
+{% endblock %}

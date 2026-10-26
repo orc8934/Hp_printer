@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block page %}history{% endblock %}
+{% block title %}历史任务 · {{ site_name }}{% endblock %}
+
+{% block content %}
+<section class="card">
+  <div class="card-head">
+    <h2>历史任务</h2>
+    <form method="post" action="{{ url_for('web.logout') }}" class="inline">
+      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+    </form>
+  </div>
+
+  {% if not jobs %}
+  <p class="muted center empty">还没有打印记录</p>
+  {% else %}
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>时间</th><th>任务</th><th>状态</th><th>设置</th><th>页数</th><th>操作</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for job in jobs %}
+        <tr>
+          <td class="nowrap tiny">{{ job.created_at.replace('T', ' ').replace('Z', '') }}</td>
+          <td>
+            <div class="strong">{{ job.title }}</div>
+            <div class="tiny muted">{{ job.source_name }}</div>
+          </td>
+          <td><span class="badge state-{{ job.state }}">{{ job.state_label }}</span></td>
+          <td class="tiny">{{ job.settings_text }}</td>
+          <td class="tiny nowrap">{{ job.pages }} 页{% if job.duplex != 'off' %}（1面 {{ job.pass1_pages }} / 2面 {{ job.pass2_pages }}）{% endif %}</td>
+          <td class="nowrap">
+            {% if job.can_continue %}
+            <button class="btn tiny primary" data-continue="{{ job.id }}" type="button">继续打印</button>
+            {% endif %}
+            {% if job.can_cancel %}
+            <button class="btn tiny ghost" data-cancel="{{ job.id }}" type="button">取消</button>
+            {% endif %}
+            {% if job.can_retry %}
+            <button class="btn tiny ghost" data-retry="{{ job.id }}" type="button">重试</button>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</section>
+{% endblock %}
