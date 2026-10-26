@@ -3,13 +3,15 @@
 {% block title %}环境自检 · {{ site_name }}{% endblock %}
 
 {% block content %}
-<section class="card">
-  <div class="card-head">
-    <h2>环境自检</h2>
-    <a class="btn tiny ghost" href="{{ url_for('web.settings_page') }}">返回设置</a>
+<div class="hp-page-head">
+  <div>
+    <h1>环境自检</h1>
+    <p>逐项检查 USB、CUPS、驱动、字体与依赖；❌ 项需要处理后才能真机打印</p>
   </div>
-  <p class="muted tiny">逐项检查 USB、CUPS、驱动、字体与依赖。❌ 项需要处理后才能真机打印。</p>
+  <a class="btn ghost small" href="{{ url_for('web.settings_page') }}">返回系统管理</a>
+</div>
 
+<section class="card">
   <div class="table-wrap">
     <table class="table">
       <thead><tr><th>项目</th><th>结果</th><th>详情</th><th>处理建议</th></tr></thead>

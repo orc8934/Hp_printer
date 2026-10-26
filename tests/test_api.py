@@ -185,11 +185,130 @@ def test_admin_password_reset_via_api(logged_in):
     assert login.status_code == 200
 
 
+def test_normal_user_cannot_see_others_jobs_in_pages(app, logged_in):
+    """回归：首页/历史页的 bootstrap 必须按 owner 过滤，不能把别人的任务带出来。"""
+    import time as _time
+
+    from hp4928 import auth
+
+    upload = logged_in.post(
+        "/api/upload",
+        data={"file": (io.BytesIO(make_pdf_bytes(4)), "admin-only.pdf")},
+        content_type="multipart/form-data",
+    ).get_json()["upload"]
+    job = logged_in.post(
+        "/api/jobs",
+        json={"upload_id": upload["upload_id"], "settings": {"duplex": "long-edge"}},
+    ).get_json()["job"]
+
+    deadline = _time.time() + 20
+    while _time.time() < deadline:
+        state = logged_in.get(f"/api/jobs/{job['id']}").get_json()["job"]["state"]
+        if state in {"awaiting_flip", "failed", "done"}:
+            break
+        _time.sleep(0.05)
+
+    store = app.extensions["hp4928"]
+    auth.create_user(store.conn, "viewer2", "Viewer-pass-2", role="user")
+    client = app.test_client()
+    client.post("/api/auth/login", json={"username": "viewer2", "password": "Viewer-pass-2"})
+
+    for path in ("/", "/history"):
+        html = client.get(path).get_data(as_text=True)
+        assert "admin-only.pdf" not in html, f"{path} 泄露了别的用户的文件名"
+        assert job["id"] not in html, f"{path} 泄露了别的用户的任务 ID"
+
+    assert client.get("/api/jobs").get_json()["jobs"] == []
+
+
 def test_services_pages_render(logged_in):
     assert logged_in.get("/").status_code == 200
     assert logged_in.get("/history").status_code == 200
     assert logged_in.get("/settings").status_code == 200
     assert logged_in.get("/settings/doctor").status_code == 200
+    assert logged_in.get("/account").status_code == 200
+    assert logged_in.get("/notifications").status_code == 200
+    assert logged_in.get("/users").status_code == 200
+
+
+def test_new_pages_require_login(client):
+    for path in ("/account", "/notifications", "/users"):
+        response = client.get(path)
+        assert response.status_code == 302, path
+        assert "/login" in response.headers["Location"]
+
+
+def test_shell_renders_sidebar_and_title(logged_in):
+    html = logged_in.get("/").get_data(as_text=True)
+    assert "hp-sidebar" in html
+    assert "当前在：工作台" in html
+    assert "系统管理" in html          # 管理员能看到
+    assert "用户权限" in html
+    assert "hp-nav-item is-active" in html
+
+
+def test_admin_menu_hidden_for_normal_user(app, logged_in):
+    from hp4928 import auth
+
+    store = app.extensions["hp4928"]
+    auth.create_user(store.conn, "plain1", "Plain-pass-1", role="user")
+    client = app.test_client()
+    client.post("/api/auth/login", json={"username": "plain1", "password": "Plain-pass-1"})
+
+    html = client.get("/").get_data(as_text=True)
+    assert "当前在：工作台" in html
+    assert "个人中心" in html and "消息通知" in html
+    assert "系统管理" not in html
+    assert "用户权限" not in html
+
+    # 普通用户访问管理员页面被挡回首页
+    assert client.get("/settings").status_code == 302
+    assert client.get("/users").status_code == 302
+
+
+def test_settings_no_longer_hosts_user_management(logged_in):
+    html = logged_in.get("/settings").get_data(as_text=True)
+    assert "打印机与连接" in html
+    assert "new-user-form" not in html
+    users_html = logged_in.get("/users").get_data(as_text=True)
+    assert "new-user-form" in users_html
+    assert "plain1" not in users_html
+
+
+def test_account_page_shows_profile(logged_in):
+    html = logged_in.get("/account").get_data(as_text=True)
+    assert "修改密码" in html
+    assert "password-form" in html
+    assert "tester" in html
+
+
+def test_notifications_lists_duplex_job(logged_in):
+    upload = logged_in.post(
+        "/api/upload",
+        data={"file": (io.BytesIO(make_pdf_bytes(5)), "duplex.pdf")},
+        content_type="multipart/form-data",
+    ).get_json()["upload"]
+    job = logged_in.post(
+        "/api/jobs",
+        json={"upload_id": upload["upload_id"], "settings": {"duplex": "long-edge"}},
+    ).get_json()["job"]
+
+    import time as _time
+
+    deadline = _time.time() + 20
+    state = ""
+    while _time.time() < deadline:
+        state = logged_in.get(f"/api/jobs/{job['id']}").get_json()["job"]["state"]
+        if state in {"awaiting_flip", "failed", "done"}:
+            break
+        _time.sleep(0.05)
+    assert state == "awaiting_flip"
+
+    html = logged_in.get("/notifications").get_data(as_text=True)
+    assert "需要翻面确认" in html
+    assert job["id"] in html
+    assert 'data-continue="' + job["id"] + '"' in html
+
 
 
 def test_bad_login_does_not_leak_user(logged_in):

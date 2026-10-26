@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block page %}users{% endblock %}
+{% block title %}用户权限 · {{ site_name }}{% endblock %}
+
+{% block content %}
+<div class="hp-page-head">
+  <div>
+    <h1>用户权限</h1>
+    <p>管理可以登录本服务的账号；普通用户只能打印与查看自己的任务</p>
+  </div>
+  <span class="muted tiny">共 {{ users|length }} 个账号</span>
+</div>
+
+<section class="card">
+  <div class="card-head">
+    <h2>账号列表</h2>
+  </div>
+  <div class="table-wrap">
+    <table class="table">
+      <thead><tr><th>账号</th><th>角色</th><th>状态</th><th>最近登录</th><th>操作</th></tr></thead>
+      <tbody>
+        {% for item in users %}
+        <tr>
+          <td class="strong">{{ item.username }}</td>
+          <td>
+            {% if item.role == 'admin' %}<span class="badge admin">管理员</span>
+            {% else %}<span class="badge">普通用户</span>{% endif %}
+          </td>
+          <td>
+            {% if item.disabled %}<span class="badge warn">已停用</span>
+            {% else %}<span class="badge ok">正常</span>{% endif %}
+          </td>
+          <td class="tiny">{{ item.last_login_at|localtime or '—' }}</td>
+          <td class="nowrap">
+            <button class="btn tiny ghost" data-reset-password="{{ item.username }}" type="button">重置密码</button>
+            {% if item.username != user.username %}
+            <button class="btn tiny ghost" data-toggle-user="{{ item.username }}"
+                    data-disabled="{{ 1 if item.disabled else 0 }}" type="button">
+              {{ '启用' if item.disabled else '停用' }}
+            </button>
+            <button class="btn tiny danger" data-delete-user="{{ item.username }}" type="button">删除</button>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <form id="new-user-form" class="row gap" autocomplete="off">
+    <input class="input" name="username" placeholder="新账号名（3-32 位字母数字）"
+           style="flex:0 1 240px" required>
+    <select class="input" name="role" style="flex:0 1 140px">
+      <option value="user">普通用户</option>
+      <option value="admin">管理员</option>
+    </select>
+    <button class="btn primary" type="submit">添加账号</button>
+  </form>
+  <p class="hint tiny">新账号密码由系统随机生成，只会显示一次，请当场保存。</p>
+</section>
+
+<section class="card" style="margin-top:16px">
+  <div class="card-head"><h2>角色与权限</h2></div>
+  <dl class="kv">
+    <dt>普通用户</dt><dd>工作台、个人中心、消息通知；只能看到自己提交的任务</dd>
+    <dt>管理员</dt><dd>以上全部 + 系统管理（打印机/队列/驱动/自检）+ 用户权限</dd>
+    <dt>打印机管理</dt><dd>仅管理员可增删、切换队列，或打测试页</dd>
+  </dl>
+</section>
+{% endblock %}

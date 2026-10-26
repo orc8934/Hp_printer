@@ -1,5 +1,10 @@
 # HP 4928 控制台 · NiceGUI 单文件原型（HP 配色）
 
+> **状态：已并入正式服务。** 这套 HP 配色侧边栏界面已经实现在
+> `hp4928/templates/` + `hp4928/static/` 里，直接跑服务就能看到（见根目录
+> README 的「界面预览」，截图在 `docs/ui/`）。本目录保留为**最初的 NiceGUI
+> 设计原型**：用于快速试配色/布局，数据是内存 mock，不接真实打印。
+
 按你的技术要求重做的 UI：**单文件、`pip install nicegui` 后 `python app.py` 直接预览**。
 
 ```bash

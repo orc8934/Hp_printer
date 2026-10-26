@@ -548,7 +548,6 @@
     badges.push(`<span class="badge state-${escapeHtml(job.state)}">${escapeHtml(job.state_label)}</span>`);
     if (job.virtual) badges.push('<span class="badge warn">虚拟</span>');
     if (job.duplex && job.duplex !== "off") badges.push('<span class="badge">手动双面</span>');
-    if (job.can_continue) badges.push('<span class="badge warn">等待翻面</span>');
 
     const meta = [
       job.settings_text,
@@ -989,13 +988,27 @@
   function initSettings() {
     loadPrinterManager();
 
-    // 修改自己的密码
+    $("#refresh-schema")?.addEventListener("click", async () => {
+      try {
+        await api("/api/schema?refresh=1");
+        toast("已重新读取驱动选项", "ok");
+        setTimeout(() => window.location.reload(), 700);
+      } catch (err) {
+        toast(err.message, "fail");
+      }
+    });
+  }
+
+  // ------------------------------------------------------------ 个人中心
+  function initAccount() {
     $("#password-form")?.addEventListener("submit", async (event) => {
       event.preventDefault();
       const form = event.currentTarget;
       const current = form.current_password.value;
       const next = form.new_password.value;
       const confirm = form.confirm.value;
+      if (!current) { toast("请先输入当前密码", "warn"); return; }
+      if (next.length < 8) { toast("新密码至少 8 位", "warn"); return; }
       if (next !== confirm) { toast("两次输入的新密码不一致", "fail"); return; }
       try {
         await api("/api/auth/password", {
@@ -1008,8 +1021,10 @@
         toast(err.message, "fail");
       }
     });
+  }
 
-    // 新增账号
+  // ------------------------------------------------------------ 用户权限
+  function initUsers() {
     $("#new-user-form")?.addEventListener("submit", async (event) => {
       event.preventDefault();
       const form = event.currentTarget;
@@ -1033,7 +1048,25 @@
           const data = await api(`/api/users/${encodeURIComponent(username)}/password`, {
             method: "POST", body: { generate: true },
           });
-          toast(`${username} 的新密码：${data.password}`, "ok", 15000);
+          toast(`${username} 的新密码：${data.password}（只显示一次）`, "ok", 15000);
+        } catch (err) {
+          toast(err.message, "fail");
+        }
+      });
+    });
+
+    $$("[data-toggle-user]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const username = button.dataset.toggleUser;
+        const disabled = button.dataset.disabled === "1";
+        const action = disabled ? "启用" : "停用";
+        if (!window.confirm(`${action}账号 ${username}？`)) return;
+        try {
+          await api(`/api/users/${encodeURIComponent(username)}/disable`, {
+            method: "POST", body: { disabled: !disabled },
+          });
+          toast(`已${action}`, "ok");
+          setTimeout(() => window.location.reload(), 600);
         } catch (err) {
           toast(err.message, "fail");
         }
@@ -1043,7 +1076,7 @@
     $$("[data-delete-user]").forEach((button) => {
       button.addEventListener("click", async () => {
         const username = button.dataset.deleteUser;
-        if (!window.confirm(`删除账号 ${username}？`)) return;
+        if (!window.confirm(`删除账号 ${username}？该账号将无法再登录。`)) return;
         try {
           await api(`/api/users/${encodeURIComponent(username)}`, { method: "DELETE" });
           toast("已删除", "ok");
@@ -1053,15 +1086,42 @@
         }
       });
     });
+  }
 
-    $("#refresh-schema")?.addEventListener("click", async () => {
-      try {
-        await api("/api/schema?refresh=1");
-        toast("已重新读取驱动选项", "ok");
-        setTimeout(() => window.location.reload(), 700);
-      } catch (err) {
-        toast(err.message, "fail");
-      }
+  // ------------------------------------------------------------ 消息通知
+  function initNotifications() {
+    $$("[data-continue]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const jobId = button.dataset.continue;
+        const original = button.textContent;
+        button.disabled = true;
+        button.textContent = "正在送打印…";
+        try {
+          await api(`/api/jobs/${encodeURIComponent(jobId)}/continue`, { method: "POST" });
+          toast("已开始打印第二面", "ok");
+          setTimeout(() => window.location.reload(), 900);
+        } catch (err) {
+          toast(err.message, "fail", 6000);
+          button.disabled = false;
+          button.textContent = original;
+        }
+      });
+    });
+
+    $$("[data-retry]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        button.disabled = true;
+        try {
+          await api(`/api/jobs/${encodeURIComponent(button.dataset.retry)}/retry`, {
+            method: "POST",
+          });
+          toast("已重新排队", "ok");
+          setTimeout(() => window.location.reload(), 900);
+        } catch (err) {
+          toast(err.message, "fail");
+          button.disabled = false;
+        }
+      });
     });
   }
 
@@ -1069,6 +1129,9 @@
     if (currentPage === "index") initIndex();
     else if (currentPage === "history") initHistory();
     else if (currentPage === "settings") initSettings();
+    else if (currentPage === "account") initAccount();
+    else if (currentPage === "users") initUsers();
+    else if (currentPage === "notifications") initNotifications();
   });
 
   // 页面隐藏时停止轮询，避免手机耗电

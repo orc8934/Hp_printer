@@ -1,50 +1,46 @@
 {% extends "base.html" %}
 {% block page %}login{% endblock %}
 {% block title %}登录 · {{ site_name }}{% endblock %}
-{% block body_class %}login-body{% endblock %}
 
 {% block content %}
-<div class="login-wrap">
-  <div class="card login-card">
-    <div class="login-head">
-      <div class="login-logo">🖨️</div>
-      <h1>{{ site_name }}</h1>
-      <p class="muted">HP DeskJet Ink Advantage 4928 · USB 打印服务</p>
-    </div>
-
-    {% if error %}
-    <div class="alert error" role="alert">{{ error }}</div>
-    {% endif %}
-
-    <form method="post" action="{{ url_for('web.login_submit') }}" id="login-form" class="stack">
-      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
-      <input type="hidden" name="next" value="{{ next_url }}">
-      <label class="field">
-        <span>账号</span>
-        <input type="text" name="username" value="{{ username or '' }}" autocomplete="username"
-               autocapitalize="off" spellcheck="false" required autofocus>
-      </label>
-      <label class="field">
-        <span>密码</span>
-        <input type="password" name="password" autocomplete="current-password" required>
-      </label>
-      <button class="btn primary block" type="submit">登录</button>
-    </form>
-
-    <p class="tiny muted center">
-      首次运行会生成默认账号，见服务器上的
-      <code>data/initial-admin.txt</code>。<br>
-      忘记密码：<code>python3 -m hp4928.cli passwd --user admin</code>
-    </p>
+<div class="login-card card">
+  <div class="login-head">
+    <div class="login-logo">hp</div>
+    <h1>{{ site_name }}</h1>
+    <p class="muted">HP DeskJet Ink Advantage 4928 · USB / 局域网打印</p>
   </div>
 
-  {% if urls %}
-  <div class="login-hint muted tiny">
-    <p>局域网访问地址：</p>
-    <ul class="plain">
-      {% for url in urls %}<li><code>{{ url }}</code></li>{% endfor %}
-    </ul>
-  </div>
+  {% if error %}
+  <div class="alert error" role="alert">{{ error }}</div>
   {% endif %}
+
+  <form method="post" action="{{ url_for('web.login_submit') }}" id="login-form" class="stack">
+    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+    <input type="hidden" name="next" value="{{ next_url }}">
+    <label class="field">
+      <span>账号</span>
+      <input type="text" name="username" value="{{ username or '' }}" autocomplete="username"
+             autocapitalize="off" spellcheck="false" required autofocus>
+    </label>
+    <label class="field">
+      <span>密码</span>
+      <input type="password" name="password" autocomplete="current-password" required>
+    </label>
+    <button class="btn primary block lg" type="submit">登录</button>
+  </form>
+
+  <p class="tiny muted center" style="margin-top:16px">
+    首次运行会生成默认账号，见服务器上的 <code>data/initial-admin.txt</code><br>
+    忘记密码：<code>hp4928 passwd --user admin</code>
+  </p>
 </div>
+
+{% if urls %}
+<div class="login-hint tiny muted">
+  <p>局域网访问地址：</p>
+  <ul class="plain">
+    {% for url in urls %}<li><code>{{ url }}</code></li>{% endfor %}
+  </ul>
+</div>
+{% endif %}
 {% endblock %}

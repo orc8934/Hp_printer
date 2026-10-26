@@ -1,12 +1,18 @@
 {% extends "base.html" %}
 {% block page %}index{% endblock %}
-{% block title %}打印 · {{ site_name }}{% endblock %}
+{% block title %}工作台 · {{ site_name }}{% endblock %}
 
 {% block content %}
-<noscript>
-  <div class="alert error">本页面需要 JavaScript 才能上传与设置打印参数。请启用后刷新。</div>
-</noscript>
 <div id="bootstrap-json" type="application/json" hidden>{{ bootstrap|tojson }}</div>
+<noscript><div class="alert error">本页面需要 JavaScript 才能上传与设置打印参数，请启用后刷新。</div></noscript>
+
+<div class="hp-page-head">
+  <div>
+    <h1>工作台</h1>
+    <p>上传 PDF / Word / 图片 → 选择纸张与单双面 → 提交，进度在右侧实时刷新</p>
+  </div>
+  <span class="badge info">默认：黑白 · A4 · 单面 · 600dpi</span>
+</div>
 
 <!-- 状态条 -->
 <section class="status-strip" id="status-strip" aria-live="polite">
@@ -17,7 +23,7 @@
   <div class="status-item" id="status-driver"></div>
   <div class="status-item right">
     <span id="status-urls" class="muted tiny"></span>
-    <button class="btn tiny ghost" id="refresh-status" type="button">刷新</button>
+    <button class="btn ghost tiny" id="refresh-status" type="button">刷新</button>
   </div>
 </section>
 
@@ -26,14 +32,14 @@
   <section class="card upload-card">
     <div class="card-head">
       <h2>新建打印任务</h2>
-      <span class="muted tiny">支持 PDF / Word(.doc .docx) / 图片</span>
+      <span class="muted tiny">PDF / Word(.doc .docx) / 图片 · 最大 {{ max_upload_mb }} MB</span>
     </div>
 
     <div id="dropzone" class="dropzone" tabindex="0" role="button"
          aria-label="点击选择文件，或把文件拖到这里">
       <div class="dz-icon">📄</div>
       <div class="dz-title">把文件拖到这里，或点击选择</div>
-      <div class="dz-sub muted tiny">PDF · Word · JPG/PNG · 最大 {{ max_upload_mb }} MB</div>
+      <div class="dz-sub muted tiny">支持一次选多个文件，逐个提交</div>
       <input type="file" id="file-input" multiple hidden
              accept=".pdf,.doc,.docx,.odt,.rtf,.jpg,.jpeg,.png,.bmp,.tif,.tiff,.gif,.webp">
     </div>
@@ -63,13 +69,11 @@
     </details>
 
     <div class="submit-row">
-      <label class="field grow">
+      <label class="field grow" style="margin:0">
         <span>任务名称（可选）</span>
         <input type="text" id="job-title" placeholder="默认使用文件名" maxlength="120">
       </label>
-      <button class="btn primary lg" id="submit-job" type="button" disabled>
-        开始打印
-      </button>
+      <button class="btn primary lg" id="submit-job" type="button" disabled>开始打印</button>
     </div>
     <p class="hint tiny" id="settings-notes"></p>
   </section>
@@ -80,7 +84,8 @@
       <h2>打印队列</h2>
       <div class="card-head-actions">
         <span class="muted tiny" id="jobs-summary"></span>
-        <button class="btn tiny ghost" id="refresh-jobs" type="button">刷新</button>
+        <a class="btn ghost tiny" href="{{ url_for('web.history') }}">全部任务</a>
+        <button class="btn ghost tiny" id="refresh-jobs" type="button">刷新</button>
       </div>
     </div>
     <div id="jobs" class="jobs" aria-live="polite">
@@ -90,7 +95,7 @@
 </div>
 
 <!-- 手动双面：继续打印确认框 -->
-<div class="modal" id="duplex-modal" hidden>
+<div class="modal" id="duplex-modal" hidden data-kind="flip">
   <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="duplex-title">
     <div class="modal-emoji" id="duplex-emoji">📄</div>
     <h2 id="duplex-title">请先翻面，再继续</h2>
@@ -108,9 +113,7 @@
       </div>
     </div>
 
-    <p class="modal-warn">
-      打印机已暂停第二面。不点下面的按钮，第二面永远不会打印。
-    </p>
+    <p class="modal-warn">打印机已暂停第二面。不点下面的按钮，第二面永远不会打印。</p>
     <div class="modal-actions">
       <button class="btn ghost" id="duplex-cancel" type="button">取消本次任务</button>
       <button class="btn primary xl" id="duplex-continue" type="button">

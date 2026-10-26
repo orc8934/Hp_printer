@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block page %}notifications{% endblock %}
+{% block title %}消息通知 · {{ site_name }}{% endblock %}
+
+{% block content %}
+<div class="hp-page-head">
+  <div>
+    <h1>消息通知</h1>
+    <p>需要你处理的任务都在这里：等待翻面、失败重试</p>
+  </div>
+  <a class="btn ghost small" href="{{ url_for('web.history') }}">查看全部任务</a>
+</div>
+
+<section class="card">
+  <div class="card-head">
+    <h2>待处理与最近动态</h2>
+    <span class="muted tiny">共 {{ items|length }} 条</span>
+  </div>
+
+  {% if not items %}
+  <p class="muted center empty">没有需要处理的事情，一切正常</p>
+  {% else %}
+  <div class="msg-list">
+    {% for item in items %}
+    <div class="msg">
+      <span class="msg-dot {{ item.kind }}"></span>
+      <div class="msg-body">
+        <div class="msg-title">{{ item.title }}</div>
+        <div class="msg-text">{{ item.body }}</div>
+        <div class="msg-actions">
+          {% if item.action == 'continue' %}
+          <button class="btn tiny primary" data-continue="{{ item.job_id }}" type="button">
+            我已翻面，继续打印
+          </button>
+          {% elif item.action == 'retry' %}
+          <button class="btn tiny ghost" data-retry="{{ item.job_id }}" type="button">重试</button>
+          {% endif %}
+          <a class="btn tiny ghost" href="{{ url_for('web.history') }}">查看任务</a>
+        </div>
+      </div>
+      <span class="msg-time">{{ item.time }}</span>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</section>
+
+<section class="card" style="margin-top:16px">
+  <div class="card-head"><h2>说明</h2></div>
+  <p class="muted tiny" style="margin:0">
+    这里的内容是实时从任务状态推导出来的，没有「已读/未读」标记。
+    等待翻面的任务会在 {{ manual_duplex_timeout }} 分钟后自动取消，请及时处理。
+  </p>
+</section>
+{% endblock %}

@@ -31,7 +31,7 @@ from .auth import (
     logout_principal,
 )
 from .config import load_config
-from .jobs import JobError, STATE_LABELS
+from .jobs import JobError, STATE_LABELS, STATE_AWAITING_FLIP, STATE_DONE, STATE_FAILED
 from .settings import SettingsError
 from .store import Store
 
@@ -40,16 +40,80 @@ log = logging.getLogger("hp4928")
 views = Blueprint("web", __name__)
 
 
+@views.app_template_filter("localtime")
+def localtime_filter(value: str | None) -> str:
+    return _to_local(value)
+
+# 侧边栏导航（顺序即显示顺序；admin=True 仅管理员可见）
+NAV_ITEMS = (
+    {"endpoint": "web.index", "label": "工作台", "icon": "dashboard", "admin": False},
+    {"endpoint": "web.account_page", "label": "个人中心", "icon": "user", "admin": False},
+    {"endpoint": "web.notifications_page", "label": "消息通知", "icon": "bell", "admin": False},
+    {"endpoint": "web.settings_page", "label": "系统管理", "icon": "settings", "admin": True},
+    {"endpoint": "web.users_page", "label": "用户权限", "icon": "users", "admin": True},
+)
+
+# 不在导航里、但顶栏要显示标题的页面
+EXTRA_TITLES = {
+    "web.history": "任务历史",
+    "web.settings_doctor": "环境自检",
+    "web.login": "登录",
+}
+
+
+def _to_local(value: str | None, fmt: str = "%Y-%m-%d %H:%M") -> str:
+    """数据库里存的是 UTC（...Z），展示时转成服务器本地时间。"""
+    if not value:
+        return ""
+    from datetime import datetime, timezone
+
+    text = str(value)
+    try:
+        stamp = datetime.strptime(text, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return text
+    return stamp.astimezone().strftime(fmt)
+
+
+def _short_time(value: str | None) -> str:
+    return _to_local(value, "%m-%d %H:%M")
+
+
 # --------------------------------------------------------------------- 模板上下文
 @views.app_context_processor
 def inject_globals() -> dict[str, Any]:
     store: Store = current_app.extensions["hp4928"]
+    principal = current_principal()
+
+    nav_badges: dict[str, int] = {}
+    if principal is not None:
+        try:
+            sql = ("SELECT COUNT(*) AS n FROM jobs "
+                   "WHERE state IN ('awaiting_flip', 'failed')")
+            params: tuple = ()
+            if not principal.is_admin:
+                sql += " AND owner_id = ?"
+                params = (principal.id,)
+            row = store.conn.execute(sql, params).fetchone()
+            pending = int(row["n"]) if row else 0
+            if pending:
+                nav_badges["web.notifications_page"] = pending
+        except Exception:  # noqa: BLE001 - 徽标不能拖垮页面
+            pass
+
+    titles = {item["endpoint"]: item["label"] for item in NAV_ITEMS}
+    titles.update(EXTRA_TITLES)
+    nav_title = titles.get(request.endpoint or "", store.cfg.get("app.site_name", "打印服务"))
+
     return {
         "site_name": store.cfg.get("app.site_name", "打印服务"),
         "app_name": store.cfg.get("app.name", "HP 4928 打印服务"),
         "version": __version__,
-        "user": current_principal(),
+        "user": principal,
         "csrf_token": auth.csrf_token(),
+        "nav_items": NAV_ITEMS,
+        "nav_badges": nav_badges,
+        "nav_title": nav_title,
     }
 
 
@@ -102,10 +166,14 @@ def logout():
 @login_required
 def index():
     store: Store = current_app.extensions["hp4928"]
+    principal = current_principal()
+    assert principal is not None
+    # 普通用户只能看到自己的任务（管理员看全部）
+    owner_id = None if principal.is_admin else principal.id
     bootstrap = {
         "schema": store.schema(),
         "status": store.status(),
-        "jobs": [store.jobs.public(job) for job in store.jobs.list(limit=30)],
+        "jobs": [store.jobs.public(job) for job in store.jobs.list(limit=30, owner_id=owner_id)],
         "limits": {
             "max_upload_mb": int(store.cfg.get("server.max_upload_mb", 64) or 64),
             "session_hours": int(store.cfg.get("server.session_hours", 12) or 12),
@@ -124,11 +192,98 @@ def index():
 @login_required
 def history():
     store: Store = current_app.extensions["hp4928"]
+    principal = current_principal()
+    assert principal is not None
+    owner_id = None if principal.is_admin else principal.id
     return render_template(
         "history.html",
-        jobs=[store.jobs.public(job) for job in store.jobs.list(limit=200)],
+        jobs=[store.jobs.public(job)
+              for job in store.jobs.list(limit=200, owner_id=owner_id)],
         state_labels=STATE_LABELS,
     )
+
+
+@views.get("/account")
+@login_required
+def account_page():
+    """个人中心：账号信息 + 改密 + 最近登录。"""
+    store: Store = current_app.extensions["hp4928"]
+    principal = current_principal()
+    assert principal is not None
+    profile = auth.get_user(store.conn, principal.username) or {}
+    try:
+        rows = store.conn.execute(
+            "SELECT at, action, detail FROM audit WHERE actor = ? ORDER BY id DESC LIMIT 8",
+            (principal.username,),
+        ).fetchall()
+        records = [dict(row) for row in rows]
+    except Exception:  # noqa: BLE001
+        records = []
+    return render_template(
+        "account.html",
+        profile={
+            "username": profile.get("username", principal.username),
+            "role": profile.get("role", principal.role),
+            "created_at": profile.get("created_at") or "",
+            "last_login_at": profile.get("last_login_at") or "",
+        },
+        records=records,
+        session_hours=int(store.cfg.get("server.session_hours", 12) or 12),
+    )
+
+
+@views.get("/notifications")
+@login_required
+def notifications_page():
+    """消息通知：从任务状态实时推导（等待翻面 / 失败 / 最近完成）。"""
+    store: Store = current_app.extensions["hp4928"]
+    principal = current_principal()
+    assert principal is not None
+    jobs = store.jobs.list(limit=60, owner_id=None if principal.is_admin else principal.id)
+
+    items: list[dict[str, Any]] = []
+    for job in jobs:
+        if job["state"] == STATE_AWAITING_FLIP:
+            items.append({
+                "kind": "warn",
+                "title": "需要翻面确认",
+                "body": (f"「{job['title']}」第一面（奇数页 {job['pass1_pages']} 页）已打印，"
+                         "翻面后点按钮打印第二面。"),
+                "job_id": job["id"],
+                "action": "continue",
+                "time": _short_time(job.get("updated_at")),
+            })
+        elif job["state"] == STATE_FAILED:
+            items.append({
+                "kind": "danger",
+                "title": "任务失败",
+                "body": f"「{job['title']}」：{job.get('error') or '未知错误'}",
+                "job_id": job["id"],
+                "action": "retry",
+                "time": _short_time(job.get("updated_at")),
+            })
+    for job in [item for item in jobs if item["state"] == STATE_DONE][:5]:
+        items.append({
+            "kind": "ok",
+            "title": "打印完成",
+            "body": f"「{job['title']}」{job['pages']} 页已全部投递。",
+            "job_id": job["id"],
+            "action": "",
+            "time": _short_time(job.get("finished_at") or job.get("updated_at")),
+        })
+
+    return render_template(
+        "notifications.html",
+        items=items,
+        manual_duplex_timeout=store.cfg.get("print.manual_duplex_timeout_minutes", 60),
+    )
+
+
+@views.get("/users")
+@admin_required
+def users_page():
+    store: Store = current_app.extensions["hp4928"]
+    return render_template("users.html", users=auth.list_users(store.conn))
 
 
 @views.get("/settings")
@@ -136,13 +291,11 @@ def history():
 def settings_page():
     store: Store = current_app.extensions["hp4928"]
     schema = store.schema()
-    users = auth.list_users(store.conn)
     spool = printers.spool_files(store.cfg)[:20]
     return render_template(
         "settings.html",
         schema=schema,
         status=store.status(),
-        users=users,
         config=store.cfg,
         spool=spool,
         checks=None,

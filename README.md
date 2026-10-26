@@ -10,6 +10,30 @@ USB / 局域网打印服务：浏览器上传文件 → 服务转换成 PDF → 
 - 支持 **PDF / Word（.doc/.docx）/ 图片**，图片默认按 **6 寸相纸（4R 102×152mm）** 排版
 - USB 不可用时自动**降级为虚拟打印机**（输出 PDF），界面明确提示，不会假装打印成功
 - 「高级设置」**逐项对齐已安装的 HP 官方驱动**（PPD / `lpoptions` 真实选项，不做臆造）
+- **HP 配色界面**：左侧固定侧边栏按角色渲染菜单（普通用户 3 项 / 管理员 5 项）
+
+---
+
+## 界面预览
+
+主蓝 `#0096D6` / 深蓝 `#002E6D`，侧边栏白底、选中项左侧 3px 主蓝竖条；
+普通用户看到「工作台 / 个人中心 / 消息通知」，管理员额外看到「系统管理 / 用户权限」。
+
+![工作台](docs/ui/index-admin.png)
+
+| 手动双面确认（不点就不打第二面） | 系统管理：打印机与局域网队列 |
+| --- | --- |
+| ![翻面确认](docs/ui/duplex-modal.png) | ![系统管理](docs/ui/settings.png) |
+
+| 消息通知（真实任务推导） | 普通用户视角（管理菜单自动隐藏） |
+| --- | --- |
+| ![消息通知](docs/ui/notifications.png) | ![普通用户](docs/ui/index-normal-user.png) |
+
+手机端（侧栏折成图标条，表格横向滚动）：
+
+<img src="docs/ui/mobile.png" alt="手机端" width="320">
+
+更多截图见 `docs/ui/`。`ui-prototype/` 是最初的 NiceGUI 设计原型，界面已并入服务，保留作设计参考。
 
 ---
 
@@ -42,7 +66,8 @@ USB / 局域网打印服务：浏览器上传文件 → 服务转换成 PDF → 
 | Debian 系 Linux、Python3 | Python 3.9+，纯 Python 依赖（Flask / waitress / pypdf / Pillow / PyYAML） | `hp4928/` |
 | 跑在 10086 端口 | `server.port: 10086`，可用 `--port` 覆盖 | `config.yaml` |
 | 账号密码 | scrypt 哈希 + 签名会话 + 登录限速 + CSRF；首次运行生成随机密码 | `hp4928/auth.py` |
-| 默认账号可改 | 网页「设置 → 我的账号」或 `python -m hp4928.cli passwd` | `hp4928/cli.py` |
+| 默认账号可改 | 网页「个人中心 → 修改密码」或 `hp4928 passwd` | `hp4928/cli.py` |
+| 界面与权限 | HP 配色侧边栏；菜单按角色渲染，普通用户看不到管理项，页面也做 owner 过滤 | `hp4928/templates/`、`web.py` |
 | USB 打印 | CUPS + HPLIP **hpcups** 驱动队列（USB 2.0 直连） | `scripts/setup-usb-printer.sh` |
 | USB 行不通时降级 | USB 掉线 / 无 CUPS / 无队列 → 自动切虚拟打印机，任务留存为 PDF | `hp4928/printers.py` |
 | 局域网打印 | 监听 `0.0.0.0:10086`，手机浏览器直接上传；可选 IP 白名单 | `server.host` / `allowed_cidrs` |
@@ -117,7 +142,7 @@ python -m hp4928.cli serve --backend virtual   # 没有打印机也能先跑起�
 
 修改密码的三种方式：
 
-1. **网页**：右上角「设置」→「我的账号」→ 填当前密码和新密码
+1. **网页**：左侧「个人中心」→「修改密码」→ 填当前密码和新密码
 2. **命令行**（推荐运维用，安装脚本已生成 `/usr/local/bin/hp4928`）：
    ```bash
    sudo hp4928 passwd --user admin            # 随机生成新密码
@@ -146,7 +171,7 @@ sudo -u hp4928 /opt/hp4928-print/.venv/bin/python -m hp4928.cli users add \
      --username zhangsan --role user --config /etc/hp4928-print/config.yaml
 ```
 
-或在网页「设置 → 账号管理」里添加（会自动生成初始密码，只显示一次）。
+或在网页「用户权限」里添加（会自动生成初始密码，只显示一次）。
 
 > 忘记密码只能重置（不存在找回）：用上面的 `passwd` 命令，或删掉数据库重建（会丢历史）。
 
@@ -183,7 +208,8 @@ hp4928-print/
 │   └── setup-usb-printer.sh # 创建 USB 队列 + 写入官方默认设置
 ├── deploy/
 │   └── hp4928-print.service # systemd 单元（含安全加固）
-├── ui-prototype/            # NiceGUI 单文件 UI 原型（新界面设计稿，见其 README）
+├── docs/ui/                 # 界面截图（README 引用）
+├── ui-prototype/            # 最初的 NiceGUI 设计原型（界面已并入服务，留作参考）
 ├── config.example.yaml      # 由默认配置导出
 ├── requirements.txt
 ├── pytest.ini
@@ -368,7 +394,7 @@ lpoptions -p HP4928 -l            # 驱动选项（就是这个服务界面里�
 ### 6.4 用打印机自带 Wi-Fi 也行
 
 如果 USB 实在不稳定，让打印机连上 Wi-Fi（4928 只支持 2.4 GHz），然后在
-**设置 → 打印机与连接** 里扫描或手动添加（见 [6.5](#65-添加局域网打印机wifi--网线)）。
+**系统管理 → 打印机与连接** 里扫描或手动添加（见 [6.5](#65-添加局域网打印机wifi--网线)）。
 手动方式等价于：
 
 ```bash
@@ -387,7 +413,7 @@ sudo lpadmin -p HP4928-NET -E -m everywhere -v "ipp://192.168.1.50/ipp/print"
 
 4 种操作方式，任选：
 
-**A. 网页（推荐）**：设置 → 打印机与连接
+**A. 网页（推荐）**：系统管理 → 打印机与连接
 1. 表里列出本机所有 CUPS 队列，`USB` / `网络` 徽标一眼区分，点「使用」即切换
 2. 点「🔍 扫描局域网打印机」→ 列出 mDNS/lpinfo 发现的地址 → 填个名字点「添加」
 3. 或展开「手动添加网络打印机」，填地址 + 队列名（+ 可选驱动）
@@ -560,7 +586,7 @@ HP 4928 **没有自动双面器**，HP 官方规格写的是 *Manual（driver su
 3. 内置**官方能力画像** —— 没装 CUPS 时兜底（界面会标注"内置能力画像"）
 
 所以：**驱动里有什么选项、取值叫什么，界面里就是什么**。
-「设置 → 打印驱动」页会显示来源（`lpoptions` / `ppd` / `builtin`）、PPD 路径、
+「系统管理 → 打印驱动」页会显示来源（`lpoptions` / `ppd` / `builtin`）、PPD 路径、
 选项总数，以及语义映射（哪个界面项绑定到哪个驱动选项）。
 
 界面同时提供「驱动原生选项」折叠区：**逐项列出驱动里全部选项及全部取值**，
@@ -644,7 +670,7 @@ python -m hp4928.cli options    # 看语义映射结果
 - 目录：`<数据目录>/spool/`（默认 `/var/lib/hp4928-print/spool/`）
 - 文件名：`时间-标题-随机.pdf`，旁边有同名 `.json` 记录设置与来源
 - 界面上任务带 **「虚拟」** 徽标，状态条也会说明原因
-- 「设置 → 虚拟打印输出」可直接下载，或 `GET /api/spool`
+- 「系统管理 → 虚拟打印输出」可直接下载，或 `GET /api/spool`
 
 > 这是"USB 行不通"时的保底：**任务不会丢失**，可以下载 PDF 后用别的方式打印。
 
@@ -818,7 +844,7 @@ sudo -u hp4928 /opt/hp4928-print/.venv/bin/python -m hp4928.cli doctor \
      --config /etc/hp4928-print/config.yaml
 ```
 
-网页「设置 → 运行环境自检」是同一套检查。逐项看 `❌` 和「处理建议」。
+网页「系统管理 → 运行环境自检」是同一套检查。逐项看 `❌` 和「处理建议」。
 
 ### 14.2 USB 相关
 

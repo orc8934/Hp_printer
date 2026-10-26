@@ -1,16 +1,17 @@
 {% extends "base.html" %}
 {% block page %}history{% endblock %}
-{% block title %}历史任务 · {{ site_name }}{% endblock %}
+{% block title %}任务历史 · {{ site_name }}{% endblock %}
 
 {% block content %}
-<section class="card">
-  <div class="card-head">
-    <h2>历史任务</h2>
-    <form method="post" action="{{ url_for('web.logout') }}" class="inline">
-      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
-    </form>
+<div class="hp-page-head">
+  <div>
+    <h1>任务历史</h1>
+    <p>最近的打印任务，可下载每一遍的 PDF 或重试失败任务</p>
   </div>
+  <a class="btn ghost small" href="{{ url_for('web.index') }}">回到工作台</a>
+</div>
 
+<section class="card">
   {% if not jobs %}
   <p class="muted center empty">还没有打印记录</p>
   {% else %}
@@ -24,7 +25,7 @@
       <tbody>
         {% for job in jobs %}
         <tr>
-          <td class="nowrap tiny">{{ job.created_at.replace('T', ' ').replace('Z', '') }}</td>
+          <td class="nowrap tiny">{{ job.created_at|localtime }}</td>
           <td>
             <div class="strong">{{ job.title }}</div>
             <div class="tiny muted">{{ job.source_name }}</div>
@@ -41,6 +42,9 @@
             {% endif %}
             {% if job.can_retry %}
             <button class="btn tiny ghost" data-retry="{{ job.id }}" type="button">重试</button>
+            {% endif %}
+            {% if job.pass1_pages %}
+            <a class="btn tiny ghost" href="{{ url_for('api.api_job_file', job_id=job.id, which='pass1') }}">第1面</a>
             {% endif %}
           </td>
         </tr>

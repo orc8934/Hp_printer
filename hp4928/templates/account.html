@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block page %}account{% endblock %}
+{% block title %}个人中心 · {{ site_name }}{% endblock %}
+
+{% block content %}
+<div class="hp-page-head">
+  <div>
+    <h1>个人中心</h1>
+    <p>查看自己的账号信息、修改密码、查看最近登录</p>
+  </div>
+</div>
+
+<div class="settings-grid">
+  <section class="card">
+    <div class="card-head"><h2>账号信息</h2></div>
+    <div style="display:flex;gap:14px;align-items:center;margin-bottom:14px">
+      <div class="hp-avatar" style="width:52px;height:52px;font-size:18px">
+        {{ profile.username[:1]|upper }}
+      </div>
+      <div>
+        <div class="strong" style="font-size:16px;color:var(--hp-navy)">{{ profile.username }}</div>
+        <div class="tiny muted">
+          {{ '管理员' if profile.role == 'admin' else '普通用户' }}
+        </div>
+      </div>
+    </div>
+    <dl class="kv">
+      <dt>用户名</dt><dd>{{ profile.username }}</dd>
+      <dt>角色</dt><dd>{{ '管理员' if profile.role == 'admin' else '普通用户' }}</dd>
+      <dt>创建时间</dt><dd>{{ profile.created_at|localtime or '—' }}</dd>
+      <dt>最近登录</dt><dd>{{ profile.last_login_at|localtime or '—' }}</dd>
+      <dt>会话有效期</dt><dd>{{ session_hours }} 小时（配置项 server.session_hours）</dd>
+    </dl>
+    <p class="hint tiny">账号由管理员创建；忘记密码可以让管理员重置，或用命令行
+      <code>hp4928 passwd</code> 重置。</p>
+  </section>
+
+  <section class="card">
+    <div class="card-head"><h2>修改密码</h2></div>
+    <form id="password-form" class="stack" autocomplete="off">
+      <label class="field">
+        <span>当前密码</span>
+        <input type="password" name="current_password" autocomplete="current-password" required>
+      </label>
+      <label class="field">
+        <span>新密码（至少 8 位）</span>
+        <input type="password" name="new_password" autocomplete="new-password"
+               minlength="8" required>
+      </label>
+      <label class="field">
+        <span>再输一次</span>
+        <input type="password" name="confirm" autocomplete="new-password" required>
+      </label>
+      <button class="btn primary" type="submit">保存新密码</button>
+    </form>
+  </section>
+
+  <section class="card" style="grid-column:1 / -1">
+    <div class="card-head"><h2>最近登录</h2><span class="muted tiny">来自审计日志</span></div>
+    {% if records %}
+    <div class="table-wrap">
+      <table class="table compact">
+        <thead><tr><th>时间</th><th>动作</th><th>详情</th></tr></thead>
+        <tbody>
+          {% for item in records %}
+          <tr>
+            <td class="nowrap tiny">{{ item.at|localtime }}</td>
+            <td>
+              {% if item.action == 'login.ok' %}<span class="badge ok">登录成功</span>
+              {% elif item.action == 'login.failed' %}<span class="badge danger">登录失败</span>
+              {% else %}<span class="badge">{{ item.action }}</span>{% endif %}
+            </td>
+            <td class="tiny mono">{{ item.detail }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="muted tiny">暂无记录</p>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}
