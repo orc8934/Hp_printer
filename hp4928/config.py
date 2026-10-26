@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import ipaddress
 import os
 import secrets
 import socket
@@ -52,6 +53,59 @@ def _parse_bool(value: Any, default: bool = False) -> bool:
     if isinstance(value, str):
         return value.strip().lower() in {"1", "true", "yes", "on"}
     return default
+
+
+def _parse_proc_ipv6(text: str) -> list[str]:
+    """解析 /proc/net/if_inet6，只保留全局地址（scope=00，排除 link-local/回环）。"""
+    addresses: list[str] = []
+    for line in text.splitlines():
+        parts = line.split()
+        if len(parts) < 6:
+            continue
+        raw, scope = parts[0], parts[3]
+        if scope != "00":
+            continue
+        try:
+            addr = ipaddress.IPv6Address(bytes.fromhex(raw))
+        except ValueError:
+            continue
+        if addr.is_loopback or addr.is_link_local or addr.ipv4_mapped:
+            continue
+        text_addr = str(addr)
+        if text_addr not in addresses:
+            addresses.append(text_addr)
+    return addresses
+
+
+def ipv6_addresses() -> list[str]:
+    """本机全局 IPv6 地址（Linux 读 /proc，其它平台退回 getaddrinfo）。
+
+    DDNS 的 AAAA 记录必须指向这里的地址之一（通常是服务器自己的全局地址，
+    不是路由器 WAN 口的地址）。
+    """
+    proc = Path("/proc/net/if_inet6")
+    if proc.is_file():
+        try:
+            parsed = _parse_proc_ipv6(proc.read_text(encoding="utf-8", errors="replace"))
+            if parsed:
+                return parsed
+        except OSError:
+            pass
+    found: list[str] = []
+    try:
+        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET6):
+            addr = str(info[4][0]).split("%", 1)[0]
+            try:
+                obj = ipaddress.IPv6Address(addr)
+            except ValueError:
+                continue
+            if obj.is_loopback or obj.is_link_local:
+                continue
+            if addr not in found:
+                found.append(addr)
+    except (OSError, ValueError):
+        pass
+    return found
 
 
 class Config:
@@ -186,31 +240,66 @@ class Config:
     def host(self) -> str:
         return str(self.get("server.host", "0.0.0.0"))
 
+    @property
+    def listen_ipv6(self) -> bool:
+        """是否额外在 [::]:port 上监听（IPv4 与 IPv6 需要两个 listener）。"""
+        value = self.get("server.listen_ipv6", True)
+        if isinstance(value, bool):
+            return value
+        return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+    @property
+    def ipv6_addresses(self) -> list[str]:
+        return ipv6_addresses()
+
     def lan_urls(self) -> list[str]:
-        """猜出局域网访问地址，方便把网址告诉手机/同事。"""
-        hosts: list[str] = []
-        if self.host not in {"0.0.0.0", "::", ""}:
-            hosts.append(self.host)
+        """猜出可访问地址，方便把网址告诉手机/同事（IPv6 用方括号）。"""
+        port = self.port
+        urls: list[str] = []
+
+        def add(raw: str) -> None:
+            host = str(raw).strip().split("%", 1)[0]        # 去掉 fe80::1%eth0 的 zone
+            if not host:
+                return
+            literal = f"[{host}]" if ":" in host else host
+            url = f"http://{literal}:{port}/"
+            if url not in urls:
+                urls.append(url)
+
+        wants_v6 = self.listen_ipv6 or ":" in self.host
+        bypass = self.host in {"0.0.0.0", "::", "[::]", ""}
+
+        if not bypass:
+            add(self.host)
         else:
+            # IPv4 局域网地址
             try:
                 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
                 try:
                     sock.connect(("223.5.5.5", 80))
-                    hosts.append(sock.getsockname()[0])
+                    candidate = sock.getsockname()[0]
+                    if not candidate.startswith("127."):
+                        add(candidate)
                 finally:
                     sock.close()
             except OSError:
                 pass
             try:
                 for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
-                    addr = info[4][0]
-                    if addr not in hosts and not addr.startswith("127."):
-                        hosts.append(addr)
+                    candidate = info[4][0]
+                    if not candidate.startswith("127."):
+                        add(candidate)
             except OSError:
                 pass
-        urls = [f"http://{host}:{self.port}/" for host in dict.fromkeys(hosts)]
-        urls.append(f"http://127.0.0.1:{self.port}/")
-        return list(dict.fromkeys(urls))
+            # 全局 IPv6（DDNS 要指的就是这些地址之一）
+            if wants_v6:
+                for candidate in self.ipv6_addresses[:3]:
+                    add(candidate)
+
+        add("127.0.0.1")
+        if wants_v6:
+            add("::1")
+        return urls
 
     def describe_sources(self) -> str:
         if not self.sources:

@@ -19,8 +19,11 @@ DEFAULTS: dict[str, Any] = {
         "data_dir": "data",
     },
     "server": {
-        # 0.0.0.0 才能被局域网访问；只给本机用就改成 127.0.0.1
+        # 0.0.0.0 = 只监听 IPv4；:: = 只监听 IPv6；填具体地址则只监听该地址
         "host": "0.0.0.0",
+        # 额外在 [::]:port 上再起一个监听（双栈）。waitress 绑 IPv6 时强制
+        # IPV6_V6ONLY=1，所以 IPv4 与 IPv6 必须是两个 listener，不能靠一个 socket 兼顾。
+        "listen_ipv6": True,
         "port": 10086,
         # waitress 工作线程数（单进程多线程，任务状态用 SQLite 串行化）
         "threads": 8,

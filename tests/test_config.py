@@ -70,3 +70,59 @@ def test_dump_example_yaml_roundtrip():
     assert "port: 10086" in text
     assert "color: mono" in text
     assert "4x6in" in text
+
+
+# ------------------------------------------------------------------ IPv6 / 监听
+def test_parse_proc_ipv6_keeps_only_global():
+    sample = (
+        "00000000000000000000000000000001 01 80 10 80       lo\n"
+        "fe8000000000000000000000000001 02 40 20 80     eth0\n"
+        "20010db8000000000000000000000001 02 40 00 80     eth0\n"
+        "fd000000000000000000000000000001 02 40 00 80    eth0\n"
+    )
+    addrs = config_mod._parse_proc_ipv6(sample)
+    assert "2001:db8::1" in addrs
+    assert any(addr.startswith("fd00") for addr in addrs)
+    assert all(not addr.startswith("fe80") for addr in addrs)
+    assert "::1" not in addrs
+
+
+def test_lan_urls_brackets_ipv6(monkeypatch):
+    monkeypatch.setattr(config_mod, "ipv6_addresses", lambda: ["2001:db8::5"])
+    cfg = config_mod.load_config(
+        extra={"paths": {"data_dir": ".tmp/urls"},
+               "server": {"host": "::", "listen_ipv6": True, "port": 10086}}
+    )
+    urls = cfg.lan_urls()
+    assert "http://[2001:db8::5]:10086/" in urls
+    assert "http://[::1]:10086/" in urls
+
+
+def test_lan_urls_without_ipv6(monkeypatch):
+    monkeypatch.setattr(config_mod, "ipv6_addresses", lambda: ["2001:db8::5"])
+    cfg = config_mod.load_config(
+        extra={"paths": {"data_dir": ".tmp/urls2"},
+               "server": {"host": "0.0.0.0", "listen_ipv6": False, "port": 10086}}
+    )
+    urls = cfg.lan_urls()
+    assert "http://127.0.0.1:10086/" in urls
+    assert not any("[" in url for url in urls)
+
+
+def test_listen_ipv6_flag_parsing():
+    assert config_mod.load_config(extra={"server": {"listen_ipv6": True}}).listen_ipv6 is True
+    assert config_mod.load_config(extra={"server": {"listen_ipv6": False}}).listen_ipv6 is False
+    assert config_mod.load_config(extra={"server": {"listen_ipv6": "yes"}}).listen_ipv6 is True
+    assert config_mod.load_config(extra={"server": {"listen_ipv6": "off"}}).listen_ipv6 is False
+
+
+def test_serve_targets_dual_stack():
+    from hp4928.cli import serve_targets
+
+    assert serve_targets("0.0.0.0", True) == ["0.0.0.0", "::"]
+    assert serve_targets("0.0.0.0", False) == ["0.0.0.0"]
+    assert serve_targets("", True) == ["0.0.0.0", "::"]
+    assert serve_targets("::", True) == ["::"]
+    assert serve_targets("::", False) == ["::"]
+    assert serve_targets("127.0.0.1", True) == ["127.0.0.1"]
+    assert serve_targets("2001:db8::9", True) == ["2001:db8::9"]

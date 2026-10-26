@@ -10,6 +10,7 @@ paths:
   data_dir: data
 server:
   host: 0.0.0.0
+  listen_ipv6: true
   port: 10086
   threads: 8
   session_hours: 12

@@ -6,6 +6,7 @@ import argparse
 import json
 import os
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -31,12 +32,33 @@ def _load_config(args):
     overrides = {}
     if getattr(args, "backend", None):
         overrides.setdefault("printer", {})["backend"] = args.backend
+    if getattr(args, "port", None):
+        overrides.setdefault("server", {})["port"] = int(args.port)
+        # create_app() 会重新加载配置，写进环境变量才能保证 banner / doctor / 监听一致
+        os.environ["HP4928_PORT"] = str(int(args.port))
+    if getattr(args, "host", None):
+        overrides.setdefault("server", {})["host"] = args.host
+        os.environ["HP4928_HOST"] = args.host
     cfg = load_config(root, overrides)
     cfg.ensure_layout()
     return cfg
 
 
 # --------------------------------------------------------------------- serve
+def serve_targets(host: str, listen_ipv6: bool) -> list[str]:
+    """决定要监听哪些地址。
+
+    waitress 在 AF_INET6 上强制 IPV6_V6ONLY=1，所以一个 socket 覆盖不了两个地址族，
+    双栈必须起两个 listener。
+    """
+    host = (host or "").strip()
+    if host in {"", "0.0.0.0"}:
+        return ["0.0.0.0"] + (["::"] if listen_ipv6 else [])
+    if host in {"::", "[::]"}:
+        return ["::"]
+    return [host]
+
+
 def cmd_serve(args) -> int:
     from .web import create_app
 
@@ -45,8 +67,10 @@ def cmd_serve(args) -> int:
     app = create_app(start_workers=True)
     store: Store = app.extensions["hp4928"]
     cfg = store.cfg
-    host = args.host or cfg.host
-    port = int(args.port or cfg.port)
+    # --host/--port 已在 _load_config 里并进配置，这里直接读，保证 banner、
+    # 状态页、doctor 用的是同一个端口
+    host = cfg.host
+    port = cfg.port
     _ = base_cfg
 
     info = store.bootstrap()
@@ -62,8 +86,8 @@ def cmd_serve(args) -> int:
         print(f"    凭据文件：{cfg.data_dir / 'initial-admin.txt'}（登录后请改密码并删除）")
     else:
         print(f"  账号：已初始化（忘记密码：python3 -m hp4928.cli passwd --user admin）")
-    if host in {"0.0.0.0", "::"}:
-        print("  局域网访问：")
+    if host in {"0.0.0.0", "::", "[::]"}:
+        print("  访问地址：")
         for url in cfg.lan_urls():
             print(f"    {url}")
     print()
@@ -72,18 +96,39 @@ def cmd_serve(args) -> int:
         if args.dev:
             app.run(host=host, port=port, debug=True, use_reloader=False, threaded=True)
         else:
-            from waitress import serve
+            # waitress 绑 IPv6 时会强制 IPV6_V6ONLY=1，一个 socket 兼顾不了两个族，
+            # 所以「0.0.0.0 + listen_ipv6」要起两个 listener。
+            targets = serve_targets(host, cfg.listen_ipv6)
+
+            from waitress import create_server
 
             workers = max(2, int(cfg.get("server.threads", 8) or 8))
-            serve(
-                app,
-                host=host,
-                port=port,
-                threads=workers,
-                ident="hp4928-print",
-                channel_timeout=120,
-                cleanup_interval=30,
-            )
+            servers = []
+            for target in targets:
+                try:
+                    server = create_server(
+                        app,
+                        host=target,
+                        port=port,
+                        threads=workers,
+                        ident="hp4928-print",
+                        channel_timeout=120,
+                        cleanup_interval=30,
+                    )
+                except OSError as exc:
+                    label = "IPv6" if ":" in target else "IPv4"
+                    print(f"  [!] {label} 监听 {target}:{port} 失败：{exc}（跳过）")
+                    continue
+                servers.append((target, server))
+                label = "IPv6" if ":" in target else "IPv4"
+                print(f"  监听 {label}：{target}:{port}")
+
+            if not servers:
+                raise SystemExit("没有任何地址监听成功，请检查端口是否被占用")
+
+            for _target, extra in servers[1:]:
+                threading.Thread(target=extra.run, name="waitress-extra", daemon=True).start()
+            servers[0][1].run()
     except KeyboardInterrupt:
         print("\n收到中断，正在停止…")
     finally:

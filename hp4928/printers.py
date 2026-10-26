@@ -721,35 +721,75 @@ def doctor(cfg) -> list[Check]:
     except sqlite3.Error as exc:
         checks.append(_check("数据库", "fail", f"{exc}", "备份后删除 data/hp4928.sqlite3 重新初始化"))
 
-    # 端口
-    host, port = str(cfg.get("server.host", "0.0.0.0")), int(cfg.get("server.port", 10086))
-    state, detail = port_status(host, port)
+    # 端口 / 地址族：IPv4 与 IPv6 是两个独立 listener，分别探测
+    port = int(cfg.get("server.port", 10086))
+    for family, label in ((socket.AF_INET, "IPv4"), (socket.AF_INET6, "IPv6")):
+        state, detail = probe_family(port, family)
+        if state == "listening":
+            hint = ""
+        elif family == socket.AF_INET6:
+            hint = "IPv6 需要 server.listen_ipv6=true 并重启服务；还要确认主机有全局 IPv6"
+        else:
+            hint = "确认服务是否在运行（systemctl status hp4928-print）"
+        checks.append(
+            _check(
+                f"{label} 端口 {port}",
+                "ok" if state == "listening" else ("warn" if state == "free" else "fail"),
+                detail,
+                hint,
+            )
+        )
+
+    # 全局 IPv6 地址（DDNS 的 AAAA 必须指向其中之一）
+    try:
+        from .config import ipv6_addresses
+
+        addrs = ipv6_addresses()
+    except Exception:  # noqa: BLE001
+        addrs = []
     checks.append(
-        _check("服务端口", "ok" if state in {"listening", "free"} else "fail",
-               f"{host}:{port} {detail}",
-               "" if state in {"listening", "free"} else f"换个端口：HP4928_PORT=10087")
+        _check(
+            "全局 IPv6 地址",
+            "ok" if addrs else "warn",
+            "、".join(addrs[:3]) if addrs else "只有 link-local，没有全局 IPv6",
+            "" if addrs else "ISP/路由器没下发 IPv6 前缀，DDNS 无法指到本机",
+        )
     )
 
     return checks
 
 
-def port_status(host: str, port: int) -> tuple[str, str]:
-    """listening（本服务已在跑）/ free / busy。"""
-    probe_host = "127.0.0.1" if host in {"0.0.0.0", "::", ""} else host
+def probe_family(port: int, family: int) -> tuple[str, str]:
+    """探测某个地址族上的端口：listening / free / fail。
+
+    IPv4 与 IPv6 必须分开测：waitress 绑 IPv6 时强制 V6ONLY，
+    一个族通不代表另一个族也通。
+    """
+    label = "IPv4" if family == socket.AF_INET else "IPv6"
+    probe_host = "127.0.0.1" if family == socket.AF_INET else "::1"
     try:
         with socket.create_connection((probe_host, port), timeout=1.0):
-            return "listening", "已有服务在监听（可能正是本服务）"
+            return "listening", f"{label} 已监听（{probe_host}:{port} 可连接）"
     except OSError:
         pass
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+    bind_host = "127.0.0.1" if family == socket.AF_INET else "::"
+    sock = socket.socket(family, socket.SOCK_STREAM)
     try:
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        sock.bind((probe_host, port))
-        return "free", "可用"
+        if family == socket.AF_INET6:
+            sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
+        sock.bind((bind_host, port))
+        return "free", f"{label} 端口空闲（服务没在监听这个地址族）"
     except OSError as exc:
-        return "busy", f"被占用（{exc.strerror or exc}）"
+        return "fail", f"{label} 绑定失败：{exc.strerror or exc}"
     finally:
         sock.close()
+
+
+def port_status(host: str, port: int) -> tuple[str, str]:
+    """兼容旧接口：只看 IPv4。"""
+    return probe_family(port, socket.AF_INET)
 
 
 def cleanup_old_files(cfg, conn) -> int:

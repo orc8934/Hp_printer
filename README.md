@@ -70,7 +70,7 @@ USB / 局域网打印服务：浏览器上传文件 → 服务转换成 PDF → 
 | 界面与权限 | HP 配色侧边栏；菜单按角色渲染，普通用户看不到管理项，页面也做 owner 过滤 | `hp4928/templates/`、`web.py` |
 | USB 打印 | CUPS + HPLIP **hpcups** 驱动队列（USB 2.0 直连） | `scripts/setup-usb-printer.sh` |
 | USB 行不通时降级 | USB 掉线 / 无 CUPS / 无队列 → 自动切虚拟打印机，任务留存为 PDF | `hp4928/printers.py` |
-| 局域网打印 | 监听 `0.0.0.0:10086`，手机浏览器直接上传；可选 IP 白名单 | `server.host` / `allowed_cidrs` |
+| 局域网打印 | 监听 `0.0.0.0` + `[::]`（双栈两个 listener），手机浏览器直接上传；可选 IP 白名单 | `server.host` / `listen_ipv6` |
 | 选择/切换打印机（USB ↔ 局域网） | 设置页管理 CUPS 队列：列表、扫描、添加 `ipp://`、切换、打测试页、删除 | `hp4928/printers.py`、`api.py` |
 | 虚拟环境 | `scripts/install.sh` 或 `scripts/bootstrap-venv.sh` 建 `.venv` | `scripts/` |
 | 默认黑白 A4 单面 | `color: mono`、`media: A4`、`duplex: off`、`quality: normal` | `hp4928/default_config.py` |
@@ -482,6 +482,61 @@ http://192.168.1.10:10086/
 - **手机使用**：界面按手机宽度做了适配，上传、选设置、点「继续打印」都能在手机上完成。
   正在等待翻面的任务会弹窗提醒，即使关掉页面，任务也会一直停在「等待翻面」。
 
+### 7.1 通过 IPv6 / DDNS 从外网访问
+
+**为什么默认访问不了 IPv6**：`0.0.0.0` 是 **IPv4 专用**的通配地址，`[::]:10086` 上根本没有监听；
+而 waitress 一旦绑 IPv6 又会强制 `IPV6_V6ONLY=1`，一个 socket 覆盖不了两个地址族。
+所以服务现在默认**起两个 listener**（`server.listen_ipv6: true`）：
+
+```yaml
+server:
+  host: "0.0.0.0"      # IPv4 监听
+  listen_ipv6: true    # 额外监听 [::]:10086（IPv6）
+  port: 10086
+```
+
+启动日志会分别打印 `监听 IPv4：0.0.0.0:10086` 和 `监听 IPv6：:::10086`。
+只想监听一个族：`listen_ipv6: false`（纯 IPv4），或 `host: "::"`（纯 IPv6）。
+
+**自检顺序**（从内往外，哪一步断了就修哪一步）：
+
+```bash
+# 1) 本机有没有全局 IPv6（fe80:: 是链路本地，不能用于 DDNS）
+ip -6 addr show scope global
+hp4928 doctor | grep -E "IPv6|端口"     # 应看到 "IPv4 已监听" 和 "IPv6 已监听"
+
+# 2) 服务是否真的在 [::]:10086 上监听
+sudo ss -lntp | grep 10086
+#   期望两行：0.0.0.0:10086 与 [::]:10086
+#   只有 0.0.0.0 一行 → listen_ipv6 没生效或没重启
+
+# 3) 从服务器本机走 IPv6 回环（排除防火墙/路由）
+curl -g -s http://[::1]:10086/api/healthz
+
+# 4) DDNS 名解析出来的 AAAA 是否就是第 1 步里的地址
+dig +short AAAA 你的域名.ddns.net
+#   不对 → 路由器/DDNS 客户端发布的是路由器自己的地址；IPv6 通常没有 NAT，
+#   AAAA 必须指向「服务器自己的」全局地址
+
+# 5) 从外网（手机关 Wi-Fi 用 5G）测
+curl -g -6 -v "http://[你的IPv6或域名]:10086/api/healthz"
+```
+
+**常见卡点**：
+
+| 现象 | 原因 | 处理 |
+| --- | --- | --- |
+| `ss` 只有 `0.0.0.0:10086` | 只监听 IPv4 | 配 `listen_ipv6: true` 并重启 |
+| 本机 `[::1]` 通、外网不通 | 路由器 IPv6 防火墙默认拒绝入站 | 在路由器上放行 10086/tcp（IPv6 叫「防火墙规则/端口开放」，不是端口转发） |
+| AAAA 解析到的是路由器地址 | DDNS 客户端在路由器上跑，取的是 WAN 口地址 | 让 DDNS 发布服务器地址；或在服务器上用 DDNS 客户端（ddclient） |
+| 外网 curl 超时 / 拒绝 | ISP 未下发可路由前缀，或做了入站封锁 | 换 VPN 方案（WireGuard/Tailscale） |
+| 域名能 ping 通但网页打不开 | 客户端没有 IPv6，或系统 Happy Eyeballs 超时 | `curl -6 ifconfig.co` 确认客户端有 v6 |
+
+> **安全提醒**：把带密码的打印服务直接暴露到公网风险不小（弱口令爆破、耗材被刷）。
+> 更稳的做法是不开公网端口，改用 WireGuard / Tailscale 回家再访问；
+> 必须暴露时至少：改掉默认密码、开 HTTPS（Nginx 反代）、
+> 用 `server.allowed_cidrs` 限量来源（IPv6 也支持 CIDR，如 `"2408:8207:1234::/48"`）。
+
 ---
 
 ## 8. 使用手册
@@ -729,7 +784,8 @@ sudo -u hp4928 env PYTHONPATH=/opt/hp4928-print HP4928_DATA_DIR=/var/lib/hp4928-
 
 ```yaml
 server:
-  host: 0.0.0.0            # 只本机用改 127.0.0.1
+  host: 0.0.0.0            # IPv4 监听地址；"::" = 只监听 IPv6；只本机用改 127.0.0.1
+  listen_ipv6: true        # 额外监听 [::]:port（双栈必须两个 listener，见 7.1）
   port: 10086
   threads: 8               # waitress 工作线程
   session_hours: 12        # 登录有效期
@@ -934,6 +990,18 @@ systemctl restart hp4928-print
 - 超过 `server.max_upload_mb` → 413，改配置或压缩文件
 - 预览空白：需要 `poppler-utils`（`pdftoppm`），装完重启服务
 - `.txt`/`.exe` 之类会被拒绝（415），只接受 PDF / Word / 图片
+
+### 14.7 外网 / IPv6 / DDNS 访问不了
+
+| 现象 | 检查 | 结论 |
+| --- | --- | --- |
+| 局域网 IPv4 正常，DDNS 域名打不开 | `sudo ss -lntp \| grep 10086` | 只有 `0.0.0.0:10086` 一行 → 没监听 IPv6，配 `listen_ipv6: true` 重启 |
+| 服务器本机 `curl -g http://[::1]:10086/...` 通，外网不通 | `ip -6 addr show scope global` | 有全局地址 → 问题在路由器放行/ISP；只有 `fe80::` → 没有公网 v6 |
+| `dig +short AAAA 域名` 得到的地址不在服务器上 | 对比 `ip -6 addr` | DDNS 发布的是路由器地址（IPv6 一般无 NAT），要改成服务器地址 |
+| 域名解析正确但仍超时 | 手机关 Wi-Fi 用 5G，`curl -g -6 -v` | 客户端没 v6 或运营商封入站，改用 WireGuard/Tailscale |
+| 返回 403 而不是连不上 | 看配置 `allowed_cidrs` | 来源 IP 不在白名单，日志里 `network.denied` |
+
+完整排查顺序见 [7.1](#71-通过-ipv6--ddns-从外网访问)。
 
 ---
 

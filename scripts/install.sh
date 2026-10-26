@@ -175,6 +175,7 @@ paths:
 
 server:
   host: "0.0.0.0"        # 局域网可访问；只想本机用改成 127.0.0.1
+  listen_ipv6: true      # 额外监听 [::]:$PORT（IPv6/DDNS 需要，双栈=两个 listener）
   port: $PORT
   threads: 8
   session_hours: 12
